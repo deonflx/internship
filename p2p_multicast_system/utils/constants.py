@@ -1,0 +1,9 @@
+# Network constants for the P2P multicast system
+
+MULTICAST_GROUP = "224.1.1.1"
+MULTICAST_PORT = 5007
+
+BUFFER_SIZE = 4096
+
+DISCOVERY_INTERVAL = 5
+PEER_TIMEOUT = 10
