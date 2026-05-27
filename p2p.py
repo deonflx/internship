@@ -11,7 +11,7 @@ MULTICAST_PORT = 5007
 BUFFER_SIZE = 4096
 
 DISCOVERY_INTERVAL = 5
-NODE_TIMEOUT = 10
+PEER_TIMEOUT = 10
 
 
 class P2PNode:
@@ -22,15 +22,17 @@ class P2PNode:
 
         self.port = self.get_port()
 
+        self.peer_id = f"{self.host}:{self.port}"
+
         self.config_file = f"{self.port}.json"
+
+        self.registered_nodes = []
 
         self.peers = {}
 
         self.running = True
 
         self.lock = threading.Lock()
-
-        self.node_name = None
 
         self.load_config()
 
@@ -59,11 +61,10 @@ class P2PNode:
 
                 port = int(input("Enter port: "))
 
-                if port > 0 and port < 65535:
+                if 0 < port < 65535:
                     return port
 
-                else:
-                    print("Invalid port")
+                print("Invalid port")
 
             except:
                 print("Enter numeric value")
@@ -75,9 +76,10 @@ class P2PNode:
     def save_config(self):
 
         data = {
-            "node_name": self.node_name,
+            "peer_id": self.peer_id,
             "host": self.host,
             "port": self.port,
+            "registered_nodes": self.registered_nodes,
             "peers": self.peers
         }
 
@@ -93,7 +95,7 @@ class P2PNode:
 
                 data = json.load(f)
 
-                self.node_name = data.get("node_name")
+                self.registered_nodes = data.get("registered_nodes", [])
 
                 self.peers = data.get("peers", {})
 
@@ -105,54 +107,50 @@ class P2PNode:
 
     def register_node(self):
 
-        while True:
+        node_name = input("\nEnter node string: ").strip()
 
-            name = input("\nEnter node name: ").strip()
-
-            if name == "":
-                print("Invalid node name")
-            else:
-                break
-
-        self.node_name = name
-
-        node_hash = self.generate_hash(
-            f"{self.node_name}{self.host}{self.port}"
-        )
+        if node_name == "":
+            print("Invalid node")
+            return
 
         with self.lock:
 
-            self.peers[self.node_name] = {
-                "host": self.host,
-                "port": self.port,
-                "hash": node_hash,
-                "last_seen": time.time()
-            }
+            if node_name not in self.registered_nodes:
 
-            self.save_config()
+                self.registered_nodes.append(node_name)
 
-        print(f"\nRegistered node: {self.node_name}")
+                self.peers[self.peer_id] = {
+                    "host": self.host,
+                    "port": self.port,
+                    "nodes": self.registered_nodes,
+                    "hash": self.generate_hash(self.peer_id),
+                    "last_seen": time.time()
+                }
+
+                self.save_config()
+
+                print(f"\nRegistered node: {node_name}")
+
+            else:
+                print("Node already exists")
 
     def send_discovery(self):
 
         while self.running:
 
-            if self.node_name:
+            message = {
+                "type": "DISCOVER",
+                "peer_id": self.peer_id,
+                "host": self.host,
+                "port": self.port,
+                "nodes": self.registered_nodes,
+                "hash": self.generate_hash(self.peer_id)
+            }
 
-                message = {
-                    "type": "DISCOVER",
-                    "node_name": self.node_name,
-                    "host": self.host,
-                    "port": self.port,
-                    "hash": self.generate_hash(
-                        f"{self.node_name}{self.host}{self.port}"
-                    )
-                }
-
-                self.sock.sendto(
-                    json.dumps(message).encode(),
-                    (MULTICAST_GROUP, MULTICAST_PORT)
-                )
+            self.sock.sendto(
+                json.dumps(message).encode(),
+                (MULTICAST_GROUP, MULTICAST_PORT)
+            )
 
             time.sleep(DISCOVERY_INTERVAL)
 
@@ -166,16 +164,17 @@ class P2PNode:
 
                 message = json.loads(data.decode())
 
-                if message["node_name"] == self.node_name:
+                if message["peer_id"] == self.peer_id:
                     continue
 
                 if message["type"] == "DISCOVER":
 
                     with self.lock:
 
-                        self.peers[message["node_name"]] = {
+                        self.peers[message["peer_id"]] = {
                             "host": message["host"],
                             "port": message["port"],
+                            "nodes": message["nodes"],
                             "hash": message["hash"],
                             "last_seen": time.time()
                         }
@@ -191,24 +190,24 @@ class P2PNode:
 
             current_time = time.time()
 
-            remove_nodes = []
+            remove_peers = []
 
             with self.lock:
 
-                for peer, info in self.peers.items():
+                for peer_id, info in self.peers.items():
 
-                    if peer == self.node_name:
+                    if peer_id == self.peer_id:
                         continue
 
-                    if current_time - info["last_seen"] > NODE_TIMEOUT:
+                    if current_time - info["last_seen"] > PEER_TIMEOUT:
 
-                        remove_nodes.append(peer)
+                        remove_peers.append(peer_id)
 
-                for peer in remove_nodes:
+                for peer_id in remove_peers:
 
-                    del self.peers[peer]
+                    del self.peers[peer_id]
 
-                    print(f"\nRemoved inactive node: {peer}")
+                    print(f"\nRemoved inactive peer: {peer_id}")
 
                 self.save_config()
 
@@ -218,21 +217,34 @@ class P2PNode:
 
         with self.lock:
 
-            print("\n========== REGISTERED NODES ==========")
+            print("\n========== ALL REGISTERED NODES ==========")
 
-            if not self.peers:
-                print("No nodes available")
+            for peer_id, info in self.peers.items():
 
-            for peer, info in self.peers.items():
+                print(f"\nPeer : {peer_id}")
+
+                for node in info["nodes"]:
+
+                    print(f"  - {node}")
+
+            print("\n==========================================")
+
+    def view_peers(self):
+
+        with self.lock:
+
+            print("\n=============== PEERS =================")
+
+            for peer_id, info in self.peers.items():
 
                 print(f"""
-Name : {peer}
-IP   : {info['host']}
-Port : {info['port']}
-Hash : {info['hash'][:20]}...
+Peer ID : {peer_id}
+IP      : {info['host']}
+Port    : {info['port']}
+Hash    : {info['hash'][:20]}...
 """)
 
-            print("======================================")
+            print("=======================================")
 
     def command_loop(self):
 
@@ -244,21 +256,39 @@ Hash : {info['hash'][:20]}...
 
                 self.register_node()
 
-            elif command.lower() == "view":
+            elif command.lower() == "view nodes":
 
                 self.view_nodes()
+
+            elif command.lower() == "view peers":
+
+                self.view_peers()
 
             elif command.lower() == "exit":
 
                 self.running = False
 
-                print("\nNode stopped")
-
                 break
+
+    def initialize_self_peer(self):
+
+        with self.lock:
+
+            self.peers[self.peer_id] = {
+                "host": self.host,
+                "port": self.port,
+                "nodes": self.registered_nodes,
+                "hash": self.generate_hash(self.peer_id),
+                "last_seen": time.time()
+            }
+
+            self.save_config()
 
     def start(self):
 
-        print(f"\nTerminal started on port {self.port}")
+        self.initialize_self_peer()
+
+        print(f"\nPeer started on {self.peer_id}")
 
         threading.Thread(target=self.listen, daemon=True).start()
 
