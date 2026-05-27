@@ -20,7 +20,7 @@ class P2PNode:
 
         self.host = socket.gethostbyname(socket.gethostname())
 
-        self.port = self.get_free_port()
+        self.port = self.get_port()
 
         self.config_file = f"{self.port}.json"
 
@@ -51,17 +51,22 @@ class P2PNode:
             mreq
         )
 
-    def get_free_port(self):
+    def get_port(self):
 
-        temp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        while True:
 
-        temp.bind(("", 0))
+            try:
 
-        port = temp.getsockname()[1]
+                port = int(input("Enter port: "))
 
-        temp.close()
+                if port > 0 and port < 65535:
+                    return port
 
-        return port
+                else:
+                    print("Invalid port")
+
+            except:
+                print("Enter numeric value")
 
     def generate_hash(self, value):
 
