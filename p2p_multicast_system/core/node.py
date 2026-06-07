@@ -23,6 +23,7 @@ class P2PNode:
         self.peers = {}
         self.running = True
         self.lock = threading.Lock()
+        self.time = 0
 
         self.load_config()
 
@@ -88,7 +89,7 @@ class P2PNode:
                     "port": self.port,
                     "nodes": self.registered_nodes,
                     "hash": generate_hash(self.peer_id),
-                    "last_seen": time.time()
+                    "time": self.time
                 }
                 self.save_config()
                 print(f"\nRegistered node: {node_name}")
@@ -144,7 +145,7 @@ Hash    : {info['hash'][:20]}...
                 "port": self.port,
                 "nodes": self.registered_nodes,
                 "hash": generate_hash(self.peer_id),
-                "last_seen": time.time()
+                "time": self.time
             }
             self.save_config()
 

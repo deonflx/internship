@@ -10,7 +10,6 @@ def start_health_monitor(node) -> threading.Thread:
     """
     def monitor_loop():
         while node.running:
-            current_time = time.time()
             remove_peers = []
 
             with node.lock:
@@ -19,7 +18,8 @@ def start_health_monitor(node) -> threading.Thread:
                     if peer_id == node.peer_id:
                         continue
 
-                    if current_time - info["last_seen"] > PEER_TIMEOUT:
+                    info["time"] += 2
+                    if info["time"] > PEER_TIMEOUT:
                         remove_peers.append(peer_id)
 
                 if remove_peers:

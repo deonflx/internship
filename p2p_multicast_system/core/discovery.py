@@ -55,7 +55,7 @@ def start_discovery_listener(node) -> threading.Thread:
                             "port": message["port"],
                             "nodes": message["nodes"],
                             "hash": message["hash"],
-                            "last_seen": time.time()
+                            "time": node.time
                         }
                         node.save_config()
             except Exception:
