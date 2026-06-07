@@ -7,6 +7,9 @@ from core.config_manager import ConfigManager
 from core.discovery import start_discovery_sender, start_discovery_listener
 from core.health_monitor import start_health_monitor
 
+# Hardcoded local WiFi IP address
+lip = "192.168.1.102"
+
 class P2PNode:
     """
     Orchestrator class for the Peer-to-Peer Multicast node.
@@ -14,7 +17,7 @@ class P2PNode:
     and runs discovery and health monitoring services.
     """
     def __init__(self):
-        self.host = socket.gethostbyname(socket.gethostname())
+        self.host = lip
         self.port = self.get_port()
         self.peer_id = f"{self.host}:{self.port}"
 
@@ -36,12 +39,18 @@ class P2PNode:
         except Exception:
             self.sock.bind((MULTICAST_GROUP, MULTICAST_PORT))
 
-        # Join the Multicast Group
-        mreq = socket.inet_aton(MULTICAST_GROUP) + socket.inet_aton("0.0.0.0")
+        # Join the Multicast Group on the WiFi interface
+        mreq = socket.inet_aton(MULTICAST_GROUP) + socket.inet_aton(lip)
         self.sock.setsockopt(
             socket.IPPROTO_IP,
             socket.IP_ADD_MEMBERSHIP,
             mreq
+        )
+        # Send multicast packets out on the WiFi interface
+        self.sock.setsockopt(
+            socket.IPPROTO_IP,
+            socket.IP_MULTICAST_IF,
+            socket.inet_aton(lip)
         )
 
     def get_port(self) -> int:
