@@ -18,7 +18,9 @@ def start_discovery_sender(node) -> threading.Thread:
                 "host": node.host,
                 "port": node.port,
                 "nodes": node.registered_nodes,
-                "hash": generate_hash(node.peer_id)
+                "hash": generate_hash(node.peer_id),
+                "sent":node.sent
+
             }
             try:
                 node.sock.sendto(
@@ -48,6 +50,12 @@ def start_discovery_listener(node) -> threading.Thread:
                 if message["peer_id"] == node.peer_id:
                     continue
 
+                for i in message["sent"]:
+                    if i[2] == node.peer_id:
+                        with node.lock:
+                            if i not in node.recieve:
+                                node.recieve.append(i)
+                                node.save_config()
                 if message["type"] == "DISCOVER":
                     with node.lock:
                         node.peers[message["peer_id"]] = {
@@ -55,7 +63,9 @@ def start_discovery_listener(node) -> threading.Thread:
                             "port": message["port"],
                             "nodes": message["nodes"],
                             "hash": message["hash"],
-                            "time": node.time
+                            "time": node.time,
+                            "recieve":node.recieve,
+
                         }
                         node.save_config()
             except Exception:

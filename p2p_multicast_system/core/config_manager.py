@@ -16,14 +16,16 @@ class ConfigManager:
         # Ensure the storage directory exists
         os.makedirs(self.storage_dir, exist_ok=True)
 
-    def save_config(self, peer_id: str, host: str, registered_nodes: list, peers: dict):
+    def save_config(self, peer_id: str, host: str, registered_nodes: list, peers: dict,sent:list,recieve:list):
         """Saves current state (registered nodes and discovered peers) to config file."""
         data = {
             "peer_id": peer_id,
             "host": host,
             "port": self.port,
             "registered_nodes": registered_nodes,
-            "peers": peers
+            "peers": peers,
+            "sent":sent,
+            "recieve":recieve
         }
         with open(self.config_file, "w") as f:
             json.dump(data, f, indent=4)

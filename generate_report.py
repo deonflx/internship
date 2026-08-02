@@ -186,19 +186,24 @@ toc_items = [
     ("", "2.2 Data Distribution Service (DDS)", ""),
     ("", "2.3 Publish-Subscribe Paradigm", ""),
     ("", "2.4 Existing DDS Implementations", ""),
-    ("4.", "DDS Architecture and Concepts", ""),
-    ("", "3.1 DDS Layered Architecture", ""),
-    ("", "3.2 Data-Centric Publish-Subscribe (DCPS)", ""),
-    ("", "3.3 Quality of Service (QoS) Policies", ""),
-    ("", "3.4 Automatic Discovery", ""),
-    ("", "3.5 DDS vs Traditional Middleware", ""),
-    ("5.", "System Design and Implementation", ""),
-    ("6.", "Source Code", ""),
-    ("7.", "Testing and Results", ""),
-    ("8.", "Relevance to Sonar Systems", ""),
-    ("9.", "Conclusion", ""),
-    ("10.", "Future Scope", ""),
-    ("11.", "References", ""),
+    ("", "2.5 Peer-to-Peer (P2P) Networks", ""),
+    ("4.", "Concepts of Peer-to-Peer", ""),
+    ("", "3.1 P2P Architecture Fundamentals", ""),
+    ("", "3.2 P2P Discovery Mechanisms", ""),
+    ("", "3.3 P2P Health Monitoring and Resilience", ""),
+    ("5.", "DDS Architecture and Concepts", ""),
+    ("", "4.1 DDS Layered Architecture", ""),
+    ("", "4.2 Data-Centric Publish-Subscribe (DCPS)", ""),
+    ("", "4.3 Quality of Service (QoS) Policies", ""),
+    ("", "4.4 Automatic Discovery", ""),
+    ("", "4.5 DDS vs Traditional Middleware", ""),
+    ("6.", "System Design and Implementation", ""),
+    ("7.", "Source Code", ""),
+    ("8.", "Testing and Results", ""),
+    ("9.", "Relevance to Sonar Systems", ""),
+    ("10.", "Conclusion", ""),
+    ("11.", "Future Scope", ""),
+    ("12.", "References", ""),
 ]
 for num, title, _ in toc_items:
     p = doc.add_paragraph()
@@ -360,14 +365,187 @@ add_table(
     ]
 )
 
+doc.add_heading('2.5 Peer-to-Peer (P2P) Networks', level=2)
+add_body(
+    'Peer-to-Peer (P2P) is a distributed computing architecture where all network nodes ("peers") have '
+    'equal capability and authority. Unlike client-server models where a central server manages communication, '
+    'P2P systems feature direct peer-to-peer connections, decentralized control, and automatic peer discovery. '
+    'Each peer acts as both a producer and consumer of data.'
+)
+add_body(
+    'Key characteristics of P2P networks include:'
+)
+add_bullet('Decentralization — No central authority or single point of failure.')
+add_bullet('Autonomous Nodes — Each peer operates independently and can join/leave the network dynamically.')
+add_bullet('Automatic Discovery — Peers discover each other through multicast, broadcast, or DHT (Distributed Hash Table) mechanisms.')
+add_bullet('Data Redundancy — Data is replicated across multiple peers, improving availability and fault tolerance.')
+add_bullet('Scalability — Adding new peers increases both storage and bandwidth capacity.')
+add_body(
+    'P2P systems are widely used in file sharing networks (BitTorrent), blockchain technologies (Bitcoin), '
+    'distributed computing frameworks (Apache Spark), and modern middleware systems like DDS. The core principles '
+    'of P2P architecture directly inspired the design of the prototype P2P Multicast System developed in this internship.'
+)
+add_table(
+    ['P2P Use Case', 'Application', 'Discovery Mechanism', 'Example'],
+    [
+        ['Content Distribution', 'File sharing, streaming', 'DHT or Tracker', 'BitTorrent, IPFS'],
+        ['Consensus Systems', 'Blockchain, ledgers', 'Gossip protocol', 'Bitcoin, Ethereum'],
+        ['Distributed Storage', 'Data replication', 'Multicast or DHT', 'Cassandra, DynamoDB'],
+        ['Real-Time Communication', 'Messaging, data streaming', 'UDP multicast or direct TCP', 'DDS, XMPP, P2P multicast'],
+        ['Sensor Networks', 'IoT data collection', 'Multicast or cluster-based', 'P2P Multicast for sonar'],
+    ]
+)
+add_body(
+    'In the context of sonar systems, P2P principles enable decentralized processing nodes that discover '
+    'each other dynamically and share real-time data without requiring a central coordinator. This approach '
+    'aligns naturally with DDS middleware and supports mission-critical reliability requirements.'
+)
+
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════
-# CHAPTER 3: DDS ARCHITECTURE
+# CHAPTER 3: CONCEPTS OF PEER-TO-PEER
 # ═══════════════════════════════════════════════════════════════
-doc.add_heading('3. DDS Architecture and Concepts', level=1)
+doc.add_heading('3. Concepts of Peer-to-Peer', level=1)
 
-doc.add_heading('3.1 DDS Layered Architecture', level=2)
+doc.add_heading('3.1 P2P Architecture Fundamentals', level=2)
+add_body(
+    'P2P architecture is based on the principle that every node in the network is treated as an equal peer, '
+    'capable of both consuming and producing data. This contrasts sharply with traditional client-server '
+    'architectures where clients depend on a centralized server for coordination and data access.'
+)
+add_body(
+    'In a P2P network:'
+)
+add_bullet(
+    'No Central Authority — Each peer maintains its own state independently. There is no single entity '
+    'that all other nodes depend upon.'
+)
+add_bullet(
+    'Self-Organization — Peers organize themselves through peer discovery and dynamic connection '
+    'establishment without requiring manual configuration.'
+)
+add_bullet(
+    'Resilience — When a peer fails or leaves the network, the remaining peers continue operating '
+    'unaffected. The network automatically adapts to topology changes.'
+)
+add_bullet(
+    'Scalability — New peers can join the network at any time. As the network grows, the collective '
+    'resources (storage, bandwidth, compute) also grow.'
+)
+add_body(
+    'The prototype P2P Multicast System implements these principles through a UDP multicast-based '
+    'discovery mechanism where all nodes announce their presence periodically, enabling automatic peer '
+    'awareness without centralized configuration.'
+)
+
+doc.add_heading('3.2 P2P Discovery Mechanisms', level=2)
+add_body(
+    'A critical challenge in P2P systems is how peers discover each other. The main discovery mechanisms are:'
+)
+add_body(
+    '1. UDP Multicast Discovery — All peers periodically broadcast messages to a multicast address. '
+    'Any peer listening on that address automatically receives discovery announcements. This approach is '
+    'used by our prototype and resembles DDS SPDP (Simple Participant Discovery Protocol).'
+)
+add_code_block("""Multicast Discovery Flow:
+Node A broadcasts: "I am 192.168.1.10:5001 with nodes=[beam_data]"
+Node B receives → Registers Node A
+Node B broadcasts: "I am 192.168.1.11:5002 with nodes=[tracker]"
+Node A receives → Registers Node B
+Both nodes now have each other in their peer list""")
+add_body(
+    '2. Distributed Hash Table (DHT) Discovery — Peers hash their peer ID and store themselves in a '
+    'distributed hash table. Other peers query the DHT to find peers. This approach is used in BitTorrent '
+    'and blockchain systems but introduces complexity unsuitable for real-time sonar systems.'
+)
+add_body(
+    '3. Tracker-Based Discovery — Peers register with a central tracker server. Other peers query the '
+    'tracker to learn about known peers. This reintroduces a point of failure and is less suitable for '
+    'mission-critical systems.'
+)
+add_body(
+    '4. Gossip Protocol — Peers exchange information about other known peers with their neighbors. '
+    'Information spreads through the network like a gossip spreading through a crowd. Useful for large '
+    'networks but introduces latency.'
+)
+add_body(
+    'For real-time sonar applications, UDP multicast discovery (used in our prototype) offers the best '
+    'balance: it is fast, simple, requires no central authority, and works well within a local area network '
+    '(LAN) or closed military network where multicast can be configured at the network infrastructure level.'
+)
+
+doc.add_heading('3.3 P2P Health Monitoring and Resilience', level=2)
+add_body(
+    'In a P2P network, peers must detect when other peers have failed or become unreachable. The main '
+    'mechanisms for health monitoring are:'
+)
+add_body(
+    '1. Heartbeat / Keepalive Messages — Each peer periodically sends heartbeat messages to announce '
+    'its liveness. Peers that stop sending heartbeats are declared dead. This is the approach used by '
+    'our prototype.'
+)
+add_code_block("""Heartbeat-Based Health Monitoring:
+Normal operation:
+  Every 5 seconds: Peer broadcasts DISCOVER message
+  Receiving peers reset dead-peer-counter to 0
+
+Peer failure detection:
+  Peer A broadcasts DISCOVER every 5 seconds
+  Peer B hasn't heard from Peer A for 12 seconds (> 10s TIMEOUT)
+  Peer B declares Peer A dead and removes it from peer list
+
+When Peer A recovers:
+  Peer A resumes broadcasting DISCOVER
+  Peer B receives it, resets counter to 0
+  Peer A is re-added to peer list""")
+add_body(
+    '2. Ping/Echo Probes — Peers actively probe each other with ping messages. Lack of response '
+    'indicates failure. More resource-intensive than passive heartbeats.'
+)
+add_body(
+    '3. TCP Connection Monitoring — In TCP-based P2P systems, connection drops are immediately detected. '
+    'However, TCP introduces overhead unsuitable for high-frequency data streaming.'
+)
+add_body(
+    '4. Adaptive Timeout — Health monitoring uses adaptive timeouts that account for network variance. '
+    'Conservative timeouts prevent false positives (prematurely declaring a live peer as dead) while '
+    'aggressive timeouts ensure quick failure detection.'
+)
+add_body(
+    'Our prototype uses a simple but effective logical timer-based timeout: each remote peer maintains a '
+    '"time" counter that increments every 2 seconds. When a DISCOVER message is received, the counter '
+    'resets to 0. If the counter exceeds PEER_TIMEOUT (10 seconds), the peer is removed. This approach '
+    'is deterministic, testable, and independent of system clock synchronization.'
+)
+add_body(
+    'Resilience in P2P networks is achieved through:'
+)
+add_bullet(
+    'Data Replication — Critical data is replicated across multiple peers, so loss of one peer does '
+    'not result in data loss.'
+)
+add_bullet(
+    'Automatic Failover — Backup peers take over when primary peers fail, without manual intervention.'
+)
+add_bullet(
+    'Graceful Degradation — The system continues functioning with reduced capacity rather than failing '
+    'completely when some peers are unavailable.'
+)
+add_body(
+    'For sonar systems, these resilience mechanisms are critical. If a processing node fails (e.g., a '
+    'beam-former crashes), the system should continue with available nodes and optionally route beam-forming '
+    'work to backup nodes. P2P architecture enables exactly this kind of dynamic, resilient operation.'
+)
+
+doc.add_page_break()
+
+# ═══════════════════════════════════════════════════════════════
+# CHAPTER 5: DDS ARCHITECTURE
+# ═══════════════════════════════════════════════════════════════
+doc.add_heading('5. DDS Architecture and Concepts', level=1)
+
+doc.add_heading('5.1 DDS Layered Architecture', level=2)
 add_body('The DDS specification defines two primary layers:')
 add_body(
     '1. DCPS (Data-Centric Publish-Subscribe) — The application-facing API layer. Defines entities such as '
@@ -396,7 +574,7 @@ add_code_block("""┌───────────────────�
 │    (UDP Multicast, TCP, Shared Memory)       │
 └─────────────────────────────────────────────┘""")
 
-doc.add_heading('3.2 Data-Centric Publish-Subscribe (DCPS)', level=2)
+doc.add_heading('5.2 Data-Centric Publish-Subscribe (DCPS)', level=2)
 add_body('The core entities in DCPS are:')
 add_table(
     ['Entity', 'Role'],
@@ -410,7 +588,7 @@ add_table(
     ]
 )
 
-doc.add_heading('3.3 Quality of Service (QoS) Policies', level=2)
+doc.add_heading('5.3 Quality of Service (QoS) Policies', level=2)
 add_body(
     'DDS defines a rich set of QoS policies that control data distribution behaviour. Key policies '
     'relevant to sonar systems include:'
@@ -430,7 +608,7 @@ add_table(
     ]
 )
 
-doc.add_heading('3.4 Automatic Discovery', level=2)
+doc.add_heading('5.4 Automatic Discovery', level=2)
 add_body('DDS uses a two-phase discovery protocol:')
 add_body(
     '1. Simple Participant Discovery Protocol (SPDP) — Participants periodically announce their presence '
@@ -445,7 +623,7 @@ add_body(
     'This is directly analogous to the discovery mechanism implemented in our prototype system.'
 )
 
-doc.add_heading('3.5 DDS vs Traditional Middleware', level=2)
+doc.add_heading('5.5 DDS vs Traditional Middleware', level=2)
 add_table(
     ['Feature', 'CORBA', 'JMS', 'MQTT', 'DDS'],
     [
@@ -463,11 +641,11 @@ add_table(
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════
-# CHAPTER 4: SYSTEM DESIGN AND IMPLEMENTATION
+# CHAPTER 6: SYSTEM DESIGN AND IMPLEMENTATION
 # ═══════════════════════════════════════════════════════════════
-doc.add_heading('4. System Design and Implementation', level=1)
+doc.add_heading('6. System Design and Implementation', level=1)
 
-doc.add_heading('4.1 Approach', level=2)
+doc.add_heading('6.1 Approach', level=2)
 add_body(
     'To practically evaluate DDS middleware concepts, a P2P Multicast System prototype was developed '
     'in Python. The prototype implements the following DDS-analogous features:'
@@ -485,7 +663,7 @@ add_table(
     ]
 )
 
-doc.add_heading('4.2 System Architecture', level=2)
+doc.add_heading('6.2 System Architecture', level=2)
 add_body('The system follows a modular, layered architecture:')
 add_code_block("""p2p_multicast_system/
 │
@@ -510,9 +688,9 @@ add_code_block("""p2p_multicast_system/
 │
 └── docs/                          # Documentation""")
 
-doc.add_heading('4.3 Module Description', level=2)
+doc.add_heading('6.3 Module Description', level=2)
 
-doc.add_heading('4.3.1 P2PNode (core/node.py)', level=3)
+doc.add_heading('6.3.1 P2PNode (core/node.py)', level=3)
 add_body(
     'The orchestrator class that coordinates all subsystems. It resolves the host IP and user-provided '
     'port to create a unique peer_id (e.g., "192.168.1.10:5001"). It creates a UDP socket, sets '
@@ -522,7 +700,7 @@ add_body(
     'timer. All shared state (peers dictionary, registered_nodes list) is protected by a threading.Lock.'
 )
 
-doc.add_heading('4.3.2 Discovery Service (core/discovery.py)', level=3)
+doc.add_heading('6.3.2 Discovery Service (core/discovery.py)', level=3)
 add_body(
     'Implements the automatic peer discovery protocol analogous to DDS SPDP. The Discovery Sender is a '
     'daemon thread that periodically (every DISCOVERY_INTERVAL = 5 seconds) broadcasts a JSON-encoded '
@@ -533,7 +711,7 @@ add_body(
     'timer to 0), and saves the configuration to disk.'
 )
 
-doc.add_heading('4.3.3 Health Monitor (core/health_monitor.py)', level=3)
+doc.add_heading('6.3.3 Health Monitor (core/health_monitor.py)', level=3)
 add_body(
     'Implements liveliness monitoring analogous to DDS Liveliness QoS. It runs as a daemon thread, '
     'waking every 2 seconds. For each remote peer, the monitor increments the peer\'s time field by 2. '
@@ -547,21 +725,21 @@ add_body(
     'an important consideration in distributed embedded sonar systems.'
 )
 
-doc.add_heading('4.3.4 ConfigManager (core/config_manager.py)', level=3)
+doc.add_heading('6.3.4 ConfigManager (core/config_manager.py)', level=3)
 add_body(
     'Provides state persistence analogous to DDS Durability QoS (TRANSIENT_LOCAL). Saves node state '
     '(peer_id, host, port, registered_nodes, peers) to storage/configs/{port}.json. On restart, loads '
     'previous state allowing the node to resume with its registered nodes and last-known peer list.'
 )
 
-doc.add_heading('4.3.5 Utilities (utils/)', level=3)
+doc.add_heading('6.3.5 Utilities (utils/)', level=3)
 add_body(
     'constants.py centralizes all network parameters: MULTICAST_GROUP = "224.1.1.1", '
     'MULTICAST_PORT = 5007, BUFFER_SIZE = 4096, DISCOVERY_INTERVAL = 5 seconds, PEER_TIMEOUT = 10 seconds. '
     'hashing.py generates SHA-256 hashes for peer state integrity verification.'
 )
 
-doc.add_heading('4.4 Network Design', level=2)
+doc.add_heading('6.4 Network Design', level=2)
 add_table(
     ['Property', 'Value', 'Rationale'],
     [
@@ -573,7 +751,7 @@ add_table(
     ]
 )
 
-doc.add_heading('4.5 Discovery Protocol', level=2)
+doc.add_heading('6.5 Discovery Protocol', level=2)
 add_body('The discovery protocol operates as follows:')
 add_bullet('Node A broadcasts a DISCOVER message via UDP multicast every 5 seconds.')
 add_bullet('Node B receives the message, verifies the peer_id is not its own, and registers Node A with time = 0.')
@@ -581,7 +759,7 @@ add_bullet('Node B similarly broadcasts its own DISCOVER message.')
 add_bullet('Node A receives and registers Node B with time = 0.')
 add_bullet('Both nodes are now aware of each other and save their updated peer lists to disk.')
 
-doc.add_heading('4.6 Health Monitoring and Peer Pruning', level=2)
+doc.add_heading('6.6 Health Monitoring and Peer Pruning', level=2)
 add_body('The health monitor implements a counter-based timeout mechanism:')
 add_code_block("""Every 2 seconds:
   For each remote peer:
@@ -593,7 +771,7 @@ add_code_block("""Every 2 seconds:
   When DISCOVER message received from a peer:
     → Reset peer.time to 0 (node.time)""")
 
-doc.add_heading('4.7 State Persistence', level=2)
+doc.add_heading('6.7 State Persistence', level=2)
 add_body('Each node\'s configuration is stored in a JSON file at storage/configs/{port}.json:')
 add_code_block("""{
     "peer_id": "192.168.1.10:5001",
@@ -611,7 +789,7 @@ add_code_block("""{
     }
 }""")
 
-doc.add_heading('4.8 Thread Safety', level=2)
+doc.add_heading('6.8 Thread Safety', level=2)
 add_body(
     'All shared state is protected by a threading.Lock. Operations including peer registration/update '
     '(discovery listener), peer pruning (health monitor), node registration (CLI), view operations, '
@@ -623,11 +801,11 @@ add_body(
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════
-# CHAPTER 5: SOURCE CODE
+# CHAPTER 7: SOURCE CODE
 # ═══════════════════════════════════════════════════════════════
-doc.add_heading('5. Source Code', level=1)
+doc.add_heading('7. Source Code', level=1)
 
-doc.add_heading('5.1 main.py — Application Entry Point', level=2)
+doc.add_heading('7.1 main.py — Application Entry Point', level=2)
 add_code_block("""import sys
 import os
 
@@ -647,7 +825,7 @@ def main():
 if __name__ == "__main__":
     main()""")
 
-doc.add_heading('5.2 core/node.py — P2PNode Orchestrator', level=2)
+doc.add_heading('7.2 core/node.py — P2PNode Orchestrator', level=2)
 add_code_block("""import socket
 import threading
 import time
@@ -733,7 +911,7 @@ class P2PNode:
         start_health_monitor(self)
         self.command_loop()""")
 
-doc.add_heading('5.3 core/discovery.py — Automatic Peer Discovery', level=2)
+doc.add_heading('7.3 core/discovery.py — Automatic Peer Discovery', level=2)
 add_code_block("""import socket, json, time, threading
 from utils.constants import MULTICAST_GROUP, MULTICAST_PORT, DISCOVERY_INTERVAL, BUFFER_SIZE
 from utils.hashing import generate_hash
@@ -782,7 +960,7 @@ def start_discovery_listener(node) -> threading.Thread:
     thread.start()
     return thread""")
 
-doc.add_heading('5.4 core/health_monitor.py — Health Monitoring', level=2)
+doc.add_heading('7.4 core/health_monitor.py — Health Monitoring', level=2)
 add_code_block("""import time, threading
 from utils.constants import PEER_TIMEOUT
 
@@ -807,7 +985,7 @@ def start_health_monitor(node) -> threading.Thread:
     thread.start()
     return thread""")
 
-doc.add_heading('5.5 core/config_manager.py — State Persistence', level=2)
+doc.add_heading('7.5 core/config_manager.py — State Persistence', level=2)
 add_code_block("""import os, json
 
 class ConfigManager:
@@ -833,14 +1011,14 @@ class ConfigManager:
                 return json.load(f)
         return None""")
 
-doc.add_heading('5.6 utils/constants.py', level=2)
+doc.add_heading('7.6 utils/constants.py', level=2)
 add_code_block("""MULTICAST_GROUP = "224.1.1.1"
 MULTICAST_PORT = 5007
 BUFFER_SIZE = 4096
 DISCOVERY_INTERVAL = 5
 PEER_TIMEOUT = 10""")
 
-doc.add_heading('5.7 utils/hashing.py', level=2)
+doc.add_heading('7.7 utils/hashing.py', level=2)
 add_code_block("""import hashlib
 
 def generate_hash(value: str) -> str:
@@ -849,18 +1027,18 @@ def generate_hash(value: str) -> str:
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════
-# CHAPTER 6: TESTING AND RESULTS
+# CHAPTER 8: TESTING AND RESULTS
 # ═══════════════════════════════════════════════════════════════
-doc.add_heading('6. Testing and Results', level=1)
+doc.add_heading('8. Testing and Results', level=1)
 
-doc.add_heading('6.1 Test Suite', level=2)
+doc.add_heading('8.1 Test Suite', level=2)
 add_body(
     'A comprehensive unit test suite was developed using Python\'s unittest framework with '
     'unittest.mock for isolating thread behavior. The test suite covers three core areas: '
     'SHA-256 hashing utility, discovery thread spawning, and health monitor pruning logic.'
 )
 
-doc.add_heading('6.2 Test Results', level=2)
+doc.add_heading('8.2 Test Results', level=2)
 add_code_block("""$ python -m unittest discover -s p2p_multicast_system/tests
 
 .......
@@ -885,7 +1063,7 @@ p = doc.add_paragraph()
 run = p.add_run('All 7/7 tests passed.')
 run.bold = True
 
-doc.add_heading('6.3 Manual Integration Testing', level=2)
+doc.add_heading('8.3 Manual Integration Testing', level=2)
 add_body(
     'The system was tested with multiple nodes running simultaneously on the same machine:'
 )
@@ -900,11 +1078,11 @@ add_bullet('When Node B was restarted, it was re-discovered automatically.')
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════
-# CHAPTER 7: RELEVANCE TO SONAR SYSTEMS
+# CHAPTER 9: RELEVANCE TO SONAR SYSTEMS
 # ═══════════════════════════════════════════════════════════════
-doc.add_heading('7. Relevance to Sonar Systems', level=1)
+doc.add_heading('9. Relevance to Sonar Systems', level=1)
 
-doc.add_heading('7.1 Mapping to Sonar Architecture', level=2)
+doc.add_heading('9.1 Mapping to Sonar Architecture', level=2)
 add_table(
     ['Sonar Subsystem', 'DDS / Prototype Analogy'],
     [
@@ -916,14 +1094,14 @@ add_table(
     ]
 )
 
-doc.add_heading('7.2 Key Benefits for Sonar Systems', level=2)
+doc.add_heading('9.2 Key Benefits for Sonar Systems', level=2)
 add_bullet('Fault Tolerance — Automatic detection and removal of failed nodes ensures the system degrades gracefully rather than catastrophically.')
 add_bullet('Plug-and-Play Deployment — New processing nodes can be added to the sonar network without any manual configuration; they are discovered automatically.')
 add_bullet('Reduced Integration Effort — The publish-subscribe model eliminates the need for explicit point-to-point connections between sonar subsystems.')
 add_bullet('Scalability — The multicast-based discovery scales naturally as new nodes join the network.')
 add_bullet('Deterministic Health Monitoring — The logical timer-based health check provides deterministic, reproducible behaviour in embedded real-time environments.')
 
-doc.add_heading('7.3 Limitations and Considerations', level=2)
+doc.add_heading('9.3 Limitations and Considerations', level=2)
 add_table(
     ['Limitation', 'Mitigation in Production DDS'],
     [
@@ -938,9 +1116,9 @@ add_table(
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════
-# CHAPTER 8: CONCLUSION
+# CHAPTER 10: CONCLUSION
 # ═══════════════════════════════════════════════════════════════
-doc.add_heading('8. Conclusion', level=1)
+doc.add_heading('10. Conclusion', level=1)
 add_body(
     'This internship at DRDO-NPOL provided valuable hands-on experience in understanding the principles '
     'of Data Distribution Service (DDS) middleware and its applicability to sonar system realization. '
@@ -976,9 +1154,9 @@ add_body(
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════
-# CHAPTER 9: FUTURE SCOPE
+# CHAPTER 11: FUTURE SCOPE
 # ═══════════════════════════════════════════════════════════════
-doc.add_heading('9. Future Scope', level=1)
+doc.add_heading('11. Future Scope', level=1)
 add_bullet('Integration with production DDS — Port the prototype concepts to a production DDS implementation (e.g., RTI Connext DDS, OpenDDS) with full QoS support.')
 add_bullet('Sonar data simulation — Generate synthetic sonar data (beam-formed samples, detection reports) and distribute them through the DDS data space.')
 add_bullet('QoS policy evaluation — Systematically benchmark different QoS configurations (RELIABLE vs BEST_EFFORT, various history depths) for sonar data streams.')
@@ -990,9 +1168,9 @@ add_bullet('Security integration — Evaluate DDS Security specification for enc
 doc.add_page_break()
 
 # ═══════════════════════════════════════════════════════════════
-# CHAPTER 10: REFERENCES
+# CHAPTER 12: REFERENCES
 # ═══════════════════════════════════════════════════════════════
-doc.add_heading('10. References', level=1)
+doc.add_heading('12. References', level=1)
 
 references = [
     'Object Management Group, "Data Distribution Service for Real-Time Systems (DDS), Version 1.4," OMG Document formal/2015-04-10, 2015.',

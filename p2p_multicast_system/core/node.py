@@ -7,8 +7,18 @@ from core.config_manager import ConfigManager
 from core.discovery import start_discovery_sender, start_discovery_listener
 from core.health_monitor import start_health_monitor
 
-# Hardcoded local WiFi IP address
-lip = "192.168.1.102"
+def get_local_ip():
+    """Auto-detect the local LAN IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+lip = get_local_ip()
 
 class P2PNode:
     """
@@ -27,6 +37,8 @@ class P2PNode:
         self.running = True
         self.lock = threading.Lock()
         self.time = 0
+        self.sent=[]
+        self.recieve=[]
 
         self.load_config()
 
@@ -70,7 +82,9 @@ class P2PNode:
             self.peer_id,
             self.host,
             self.registered_nodes,
-            self.peers
+            self.peers,
+            self.sent,
+            self.recieve
         )
 
     def load_config(self):
@@ -79,6 +93,8 @@ class P2PNode:
         if config:
             self.registered_nodes = config.get("registered_nodes", [])
             self.peers = config.get("peers", {})
+            self.sent=config.get("sent",[])
+            self.recieve=config.get("recieve",[])
             print(f"\nLoaded config from {self.config_manager.config_file}")
         else:
             self.save_config()
@@ -128,6 +144,36 @@ Hash    : {info['hash'][:20]}...
 """)
             print("=======================================")
 
+    def send(self):
+        """Prompts for a destination peer ID and a message, then appends
+        [data, source_peer_id, destination_peer_id] to self.sent."""
+        dest_peer_id = input("\nEnter destination peer ID (host:port): ").strip()
+        if dest_peer_id == "":
+            print("Invalid destination peer ID")
+            return
+
+        data = input("Enter message to send: ").strip()
+        if data == "":
+            print("Message cannot be empty")
+            return
+
+        with self.lock:
+            self.sent.append([data, self.peer_id, dest_peer_id])
+            self.save_config()
+
+        print(f"\nQueued message to {dest_peer_id}: {data}")
+
+    def view_data(self):
+        """Displays all received messages [data, source_peer_id, dest_peer_id] from self.recieve."""
+        with self.lock:
+            print("\n========== RECEIVED DATA ==========")
+            if not self.recieve:
+                print("  No data received yet.")
+            else:
+                for i, entry in enumerate(self.recieve, 1):
+                    print(f"  [{i}] Data: {entry[0]}  |  From: {entry[1]}  |  To: {entry[2]}")
+            print("====================================")
+
     def command_loop(self):
         """Loop that runs in the main thread accepting user commands."""
         while self.running:
@@ -139,6 +185,10 @@ Hash    : {info['hash'][:20]}...
                     self.view_nodes()
                 elif command.lower() == "view peers":
                     self.view_peers()
+                elif command.lower() == "send":
+                    self.send()
+                elif command.lower() == "view data":
+                    self.view_data()
                 elif command.lower() == "exit":
                     self.running = False
                     break
