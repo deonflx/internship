@@ -3,8 +3,9 @@ import json
 import time
 import random
 import threading
+import traceback
 from utils.constants import (
-    MULTICAST_GROUP, MULTICAST_PORT, GOSSIP_PORT,
+    MULTICAST_GROUP, MULTICAST_PORT,
     DISCOVERY_INTERVAL, BUFFER_SIZE,
     GOSSIP_FANOUT, ANNOUNCE_REPEATS
 )
@@ -56,6 +57,11 @@ def start_gossip_sender(node) -> threading.Thread:
         while node.running:
             time.sleep(DISCOVERY_INTERVAL)
 
+            # Refresh our own last_seen so gossip propagates a fresh timestamp
+            with node.lock:
+                if node.peer_id in node.peers:
+                    node.peers[node.peer_id]["last_seen"] = time.time()
+
             with node.lock:
                 # Only gossip with peers other than ourselves
                 peer_ids = [pid for pid in node.peers if pid != node.peer_id]
@@ -90,13 +96,14 @@ def start_gossip_sender(node) -> threading.Thread:
                     target_info = node.peers.get(target_id)
                 if target_info:
                     try:
-                        # UNICAST to the target's gossip port — NOT multicast
+                        # UNICAST to the target's own port — NOT multicast
+                        target_port = target_info["port"]
                         node.gossip_sock.sendto(
                             payload,
-                            (target_info["host"], GOSSIP_PORT)
+                            (target_info["host"], target_port)
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"  [gossip] Failed to send to {target_id}: {e}")
 
     thread = threading.Thread(target=gossip_loop, daemon=True)
     thread.start()
@@ -149,9 +156,10 @@ def send_data_to_peer(node, dest_peer_id: str, data: str):
         "data": data
     }
     try:
+        target_port = target_info["port"]
         node.gossip_sock.sendto(
             json.dumps(message).encode(),
-            (target_info["host"], GOSSIP_PORT)
+            (target_info["host"], target_port)
         )
         return True
     except Exception as e:
@@ -192,8 +200,9 @@ def start_discovery_listener(node) -> threading.Thread:
                 elif msg_type == "LEAVE":
                     _handle_leave(node, message)
 
-            except Exception:
-                pass
+            except Exception as e:
+                if node.running:
+                    print(f"  [multicast-listener] Error: {e}")
 
     thread = threading.Thread(target=listen_loop, daemon=True)
     thread.start()
@@ -224,8 +233,9 @@ def start_gossip_listener(node) -> threading.Thread:
                 elif msg_type == "DATA":
                     _handle_data(node, message)
 
-            except Exception:
-                pass
+            except Exception as e:
+                if node.running:
+                    print(f"  [gossip-listener] Error: {e}")
 
     thread = threading.Thread(target=listen_loop, daemon=True)
     thread.start()
@@ -271,9 +281,11 @@ def _handle_announce(node, message):
         "known_peers": known_peers
     }
     try:
+        # Send WELCOME to the announcing peer's own port
+        target_port = message["port"]
         node.gossip_sock.sendto(
             json.dumps(welcome_msg).encode(),
-            (message["host"], GOSSIP_PORT)
+            (message["host"], target_port)
         )
     except Exception:
         pass

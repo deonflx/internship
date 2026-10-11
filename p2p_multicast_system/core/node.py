@@ -1,7 +1,7 @@
 import socket
 import threading
 import time
-from utils.constants import MULTICAST_GROUP, MULTICAST_PORT, GOSSIP_PORT
+from utils.constants import MULTICAST_GROUP, MULTICAST_PORT
 from utils.hashing import generate_hash
 from core.config_manager import ConfigManager, start_config_saver
 from core.discovery import (
@@ -77,7 +77,7 @@ class P2PNode:
         # --- Gossip / Data unicast socket ---
         self.gossip_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.gossip_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.gossip_sock.bind(("", GOSSIP_PORT))
+        self.gossip_sock.bind(("", self.port))
 
     def get_port(self) -> int:
         """Prompts the user for a valid TCP/UDP port number."""
@@ -267,7 +267,7 @@ Last Seen : {age:.1f}s ago
         self.initialize_self_peer()
         print(f"\nPeer started on {self.peer_id}")
         print(f"  Multicast: {MULTICAST_GROUP}:{MULTICAST_PORT}")
-        print(f"  Gossip:    {self.host}:{GOSSIP_PORT}")
+        print(f"  Gossip:    {self.host}:{self.port}")
 
         # 1. Start listeners BEFORE announcing (so we catch WELCOME replies)
         start_discovery_listener(self)
