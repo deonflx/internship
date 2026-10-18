@@ -1,10 +1,15 @@
 import os
 import json
+import time
+import threading
 
 class ConfigManager:
     """
     Manages loading and saving peer configurations.
     Configs are saved under `storage/configs/<port>.json` relative to the root directory.
+
+    Supports batched saving: call mark_dirty() to flag that config has changed,
+    and a background thread will flush to disk periodically instead of on every update.
     """
     def __init__(self, port):
         self.port = port
@@ -12,11 +17,16 @@ class ConfigManager:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.storage_dir = os.path.join(base_dir, "storage", "configs")
         self.config_file = os.path.join(self.storage_dir, f"{port}.json")
-        
+
         # Ensure the storage directory exists
         os.makedirs(self.storage_dir, exist_ok=True)
 
-    def save_config(self, peer_id: str, host: str, registered_nodes: list, peers: dict,sent:list,recieve:list):
+        # Batched save state
+        self._dirty = False
+        self._dirty_lock = threading.Lock()
+
+    def save_config(self, peer_id: str, host: str, registered_nodes: list,
+                    peers: dict, sent: list, recieve: list):
         """Saves current state (registered nodes and discovered peers) to config file."""
         data = {
             "peer_id": peer_id,
@@ -24,11 +34,26 @@ class ConfigManager:
             "port": self.port,
             "registered_nodes": registered_nodes,
             "peers": peers,
-            "sent":sent,
-            "recieve":recieve
+            "sent": sent,
+            "recieve": recieve
         }
         with open(self.config_file, "w") as f:
             json.dump(data, f, indent=4)
+
+    def mark_dirty(self):
+        """Marks the config as needing a save. Thread-safe."""
+        with self._dirty_lock:
+            self._dirty = True
+
+    def is_dirty(self) -> bool:
+        """Checks if config needs saving."""
+        with self._dirty_lock:
+            return self._dirty
+
+    def clear_dirty(self):
+        """Clears the dirty flag after a successful save."""
+        with self._dirty_lock:
+            self._dirty = False
 
     def load_config(self) -> dict:
         """Loads and returns config if it exists, otherwise returns None."""
@@ -36,3 +61,22 @@ class ConfigManager:
             with open(self.config_file, "r") as f:
                 return json.load(f)
         return None
+
+
+def start_config_saver(node, interval: float = 5.0) -> threading.Thread:
+    """
+    Starts a background daemon thread that periodically flushes config to disk
+    if it has been marked dirty. This batches many rapid updates into a single
+    disk write per interval, reducing I/O from hundreds of writes/s to ~1.
+    """
+    def saver_loop():
+        while node.running:
+            time.sleep(interval)
+            if node.config_manager.is_dirty():
+                with node.lock:
+                    node.save_config()
+                node.config_manager.clear_dirty()
+
+    thread = threading.Thread(target=saver_loop, daemon=True)
+    thread.start()
+    return thread
