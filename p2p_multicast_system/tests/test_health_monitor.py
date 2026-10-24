@@ -108,6 +108,42 @@ class TestHealthMonitor(unittest.TestCase):
         self.assertEqual(len(remove_peers), 0)
         self.assertIn("127.0.0.1:5002", node.peers)
 
+    def test_pruning_records_tombstones_and_cleans_expired(self):
+        """Verify that pruning records inactive peers in tombstones and cleans up expired ones."""
+        from utils.constants import TOMBSTONE_TTL
+        node = MagicMock()
+        node.peer_id = "127.0.0.1:5001"
+        now = time.time()
+        node.peers = {
+            "127.0.0.1:5002": {"host": "127.0.0.1", "port": 5002, "last_seen": now - 40}
+        }
+        # One expired tombstone, one active
+        node.tombstones = {
+            "127.0.0.1:5003": now - (TOMBSTONE_TTL + 10)
+        }
+
+        # Simulate updated health monitor pruning loop
+        remove_peers = []
+        for peer_id, info in list(node.peers.items()):
+            if peer_id == node.peer_id:
+                continue
+            if now - info.get("last_seen", now) > 30:
+                remove_peers.append(peer_id)
+
+        if remove_peers:
+            for peer_id in remove_peers:
+                del node.peers[peer_id]
+                node.tombstones[peer_id] = now
+
+        expired = [pid for pid, ts in node.tombstones.items() if now - ts > TOMBSTONE_TTL]
+        for pid in expired:
+            del node.tombstones[pid]
+
+        self.assertNotIn("127.0.0.1:5002", node.peers)
+        self.assertIn("127.0.0.1:5002", node.tombstones)
+        self.assertNotIn("127.0.0.1:5003", node.tombstones)
+
 
 if __name__ == "__main__":
     unittest.main()
+

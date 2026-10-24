@@ -11,3 +11,5 @@ PEER_TIMEOUT = 30
 
 GOSSIP_FANOUT = 3           # Number of random peers to gossip with each round
 ANNOUNCE_REPEATS = 3        # Send ANNOUNCE this many times on startup for reliability
+TOMBSTONE_TTL = 60          # Seconds to retain tombstones to prevent zombie peer resurrection
+

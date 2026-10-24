@@ -14,6 +14,7 @@ from core.discovery import (
     _handle_announce, _handle_welcome, _handle_leave,
     _handle_gossip, _handle_data, _merge_peer_list
 )
+from utils.constants import TOMBSTONE_TTL
 
 
 class TestSendAnnounce(unittest.TestCase):
@@ -187,6 +188,24 @@ class TestHandleAnnounce(unittest.TestCase):
         payload = json.loads(node.gossip_sock.sendto.call_args[0][0].decode())
         self.assertEqual(payload["type"], "WELCOME")
 
+    def test_clears_tombstone_on_announce(self):
+        """Verify rejoining peer via ANNOUNCE clears its tombstone."""
+        node = self._make_node()
+        node.tombstones = {"192.168.1.20:5002": time.time()}
+
+        msg = {
+            "type": "ANNOUNCE",
+            "peer_id": "192.168.1.20:5002",
+            "host": "192.168.1.20",
+            "port": 5002,
+            "nodes": [],
+            "hash": "def"
+        }
+        _handle_announce(node, msg)
+
+        self.assertNotIn("192.168.1.20:5002", node.tombstones)
+        self.assertIn("192.168.1.20:5002", node.peers)
+
 
 class TestHandleLeave(unittest.TestCase):
     """Tests for LEAVE message handling."""
@@ -208,6 +227,7 @@ class TestHandleLeave(unittest.TestCase):
 
         self.assertNotIn("192.168.1.20:5002", node.peers)
         self.assertIn("192.168.1.10:5001", node.peers)
+        self.assertIn("192.168.1.20:5002", node.tombstones)
 
 
 class TestMergePeerList(unittest.TestCase):
@@ -295,6 +315,111 @@ class TestMergePeerList(unittest.TestCase):
 
         # Should remain at 300, not be downgraded to 100
         self.assertEqual(node.peers["192.168.1.20:5002"]["last_seen"], 300.0)
+
+    def test_does_not_resurrect_tombstoned_peer(self):
+        """Verify merge ignores incoming gossip for recently departed/dead peers."""
+        node = self._make_node()
+        node.tombstones = {"192.168.1.30:5003": time.time()}
+
+        incoming = {
+            "192.168.1.30:5003": {
+                "host": "192.168.1.30", "port": 5003,
+                "nodes": ["zombie"], "hash": "z", "last_seen": time.time()
+            }
+        }
+
+        _merge_peer_list(node, incoming)
+
+        # Peer 5003 must NOT be resurrected into node.peers
+        self.assertNotIn("192.168.1.30:5003", node.peers)
+
+    def test_allows_readding_after_tombstone_expires(self):
+        """Verify peer can be re-added if incoming gossip arrives after tombstone TTL expires."""
+        node = self._make_node()
+        # Tombstone expired (older than TOMBSTONE_TTL)
+        node.tombstones = {"192.168.1.30:5003": time.time() - (TOMBSTONE_TTL + 5)}
+
+        incoming = {
+            "192.168.1.30:5003": {
+                "host": "192.168.1.30", "port": 5003,
+                "nodes": ["rejoined"], "hash": "r", "last_seen": time.time()
+            }
+        }
+
+        _merge_peer_list(node, incoming)
+
+        self.assertIn("192.168.1.30:5003", node.peers)
+        self.assertNotIn("192.168.1.30:5003", node.tombstones)
+
+    def test_updates_with_newer_heartbeat_seq(self):
+        """Verify merge updates heartbeat_seq and refreshes last_seen to local time when seq increases."""
+        node = self._make_node()
+        node.peers["192.168.1.20:5002"]["heartbeat_seq"] = 5
+        node.peers["192.168.1.20:5002"]["last_seen"] = 100.0
+
+        incoming = {
+            "192.168.1.20:5002": {
+                "host": "192.168.1.20", "port": 5002,
+                "nodes": ["s2_new"], "hash": "b_new",
+                "heartbeat_seq": 6, "last_seen": 100.0
+            }
+        }
+
+        before_merge = time.time()
+        _merge_peer_list(node, incoming)
+        after_merge = time.time()
+
+        peer = node.peers["192.168.1.20:5002"]
+        self.assertEqual(peer["heartbeat_seq"], 6)
+        self.assertEqual(peer["nodes"], ["s2_new"])
+        # last_seen should be refreshed to current local time, NOT left at 100.0
+        self.assertTrue(before_merge <= peer["last_seen"] <= after_merge)
+
+    def test_ignores_stale_or_equal_heartbeat_seq(self):
+        """Verify merge ignores incoming gossip with an equal or smaller heartbeat_seq."""
+        node = self._make_node()
+        node.peers["192.168.1.20:5002"]["heartbeat_seq"] = 10
+        node.peers["192.168.1.20:5002"]["nodes"] = ["original"]
+        node.peers["192.168.1.20:5002"]["last_seen"] = 500.0
+
+        # Incoming has older sequence (8 < 10)
+        incoming = {
+            "192.168.1.20:5002": {
+                "host": "192.168.1.20", "port": 5002,
+                "nodes": ["STALE"], "hash": "STALE",
+                "heartbeat_seq": 8, "last_seen": 9999.0
+            }
+        }
+
+        _merge_peer_list(node, incoming)
+
+        peer = node.peers["192.168.1.20:5002"]
+        self.assertEqual(peer["heartbeat_seq"], 10)
+        self.assertEqual(peer["nodes"], ["original"])
+        self.assertEqual(peer["last_seen"], 500.0)
+
+    def test_heartbeat_seq_immune_to_clock_skew(self):
+        """Verify that even if sender clock is far behind, a newer heartbeat_seq refreshes local last_seen."""
+        node = self._make_node()
+        node.peers["192.168.1.20:5002"]["heartbeat_seq"] = 1
+        node.peers["192.168.1.20:5002"]["last_seen"] = time.time() - 25  # Almost timed out
+
+        # Sender clock is 1000s in the past
+        incoming = {
+            "192.168.1.20:5002": {
+                "host": "192.168.1.20", "port": 5002,
+                "nodes": ["s2"], "hash": "b",
+                "heartbeat_seq": 2, "last_seen": 50.0  # Skewed/stale timestamp
+            }
+        }
+
+        now = time.time()
+        _merge_peer_list(node, incoming)
+
+        peer = node.peers["192.168.1.20:5002"]
+        self.assertEqual(peer["heartbeat_seq"], 2)
+        # Receiver uses its OWN clock, preventing the peer from timing out due to sender clock skew
+        self.assertAlmostEqual(peer["last_seen"], now, delta=2.0)
 
 
 class TestHandleData(unittest.TestCase):

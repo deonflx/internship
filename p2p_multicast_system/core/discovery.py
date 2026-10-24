@@ -7,7 +7,8 @@ import traceback
 from utils.constants import (
     MULTICAST_GROUP, MULTICAST_PORT,
     DISCOVERY_INTERVAL, BUFFER_SIZE,
-    GOSSIP_FANOUT, ANNOUNCE_REPEATS
+    GOSSIP_FANOUT, ANNOUNCE_REPEATS,
+    TOMBSTONE_TTL
 )
 from utils.hashing import generate_hash
 
@@ -22,13 +23,18 @@ def send_announce(node):
     Sent ANNOUNCE_REPEATS times at 1-second intervals for reliability
     (multicast is unreliable — packets can be dropped).
     """
+    hb_seq = getattr(node, "heartbeat_seq", 0)
+    if not isinstance(hb_seq, int):
+        hb_seq = 0
+
     message = {
         "type": "ANNOUNCE",
         "peer_id": node.peer_id,
         "host": node.host,
         "port": node.port,
         "nodes": node.registered_nodes,
-        "hash": generate_hash(node.peer_id)
+        "hash": generate_hash(node.peer_id),
+        "heartbeat_seq": hb_seq
     }
     payload = json.dumps(message).encode()
 
@@ -57,9 +63,13 @@ def start_gossip_sender(node) -> threading.Thread:
         while node.running:
             time.sleep(DISCOVERY_INTERVAL)
 
-            # Refresh our own last_seen so gossip propagates a fresh timestamp
+            # Increment our monotonic heartbeat_seq and refresh our local last_seen
             with node.lock:
+                if not hasattr(node, "heartbeat_seq") or not isinstance(node.heartbeat_seq, int):
+                    node.heartbeat_seq = 0
+                node.heartbeat_seq += 1
                 if node.peer_id in node.peers:
+                    node.peers[node.peer_id]["heartbeat_seq"] = node.heartbeat_seq
                     node.peers[node.peer_id]["last_seen"] = time.time()
 
             with node.lock:
@@ -81,6 +91,7 @@ def start_gossip_sender(node) -> threading.Thread:
                         "port": info["port"],
                         "nodes": info.get("nodes", []),
                         "hash": info.get("hash", ""),
+                        "heartbeat_seq": info.get("heartbeat_seq", 0),
                         "last_seen": info.get("last_seen", time.time())
                     }
 
@@ -97,7 +108,7 @@ def start_gossip_sender(node) -> threading.Thread:
                 if target_info:
                     try:
                         # UNICAST to the target's own port — NOT multicast
-                        target_port = target_info["port"]
+                        target_port = int(target_info["port"])
                         node.gossip_sock.sendto(
                             payload,
                             (target_info["host"], target_port)
@@ -146,7 +157,7 @@ def send_data_to_peer(node, dest_peer_id: str, data: str):
         target_info = node.peers.get(dest_peer_id)
 
     if not target_info:
-        print(f"  Peer {dest_peer_id} not found in peer list. Message queued for later.")
+        print(f"  Peer {dest_peer_id} not found in peer list. Message could not be delivered.")
         return False
 
     message = {
@@ -156,7 +167,7 @@ def send_data_to_peer(node, dest_peer_id: str, data: str):
         "data": data
     }
     try:
-        target_port = target_info["port"]
+        target_port = int(target_info["port"])
         node.gossip_sock.sendto(
             json.dumps(message).encode(),
             (target_info["host"], target_port)
@@ -230,6 +241,9 @@ def start_gossip_listener(node) -> threading.Thread:
                 if msg_type == "GOSSIP":
                     _handle_gossip(node, message)
 
+                elif msg_type == "WELCOME":
+                    _handle_welcome(node, message)
+
                 elif msg_type == "DATA":
                     _handle_data(node, message)
 
@@ -254,11 +268,18 @@ def _handle_announce(node, message):
     """
     peer_id = message["peer_id"]
     with node.lock:
+        if not hasattr(node, "tombstones") or not isinstance(node.tombstones, dict):
+            node.tombstones = {}
+        # Clear tombstone if peer explicitly announces / rejoins
+        node.tombstones.pop(peer_id, None)
+
+        is_new = peer_id not in node.peers
         node.peers[peer_id] = {
             "host": message["host"],
             "port": message["port"],
             "nodes": message.get("nodes", []),
             "hash": message.get("hash", ""),
+            "heartbeat_seq": message.get("heartbeat_seq", 0),
             "last_seen": time.time()
         }
         node.config_manager.mark_dirty()
@@ -272,6 +293,7 @@ def _handle_announce(node, message):
                 "port": info["port"],
                 "nodes": info.get("nodes", []),
                 "hash": info.get("hash", ""),
+                "heartbeat_seq": info.get("heartbeat_seq", 0),
                 "last_seen": info.get("last_seen", time.time())
             }
 
@@ -282,7 +304,7 @@ def _handle_announce(node, message):
     }
     try:
         # Send WELCOME to the announcing peer's own port
-        target_port = message["port"]
+        target_port = int(message["port"])
         node.gossip_sock.sendto(
             json.dumps(welcome_msg).encode(),
             (message["host"], target_port)
@@ -290,7 +312,8 @@ def _handle_announce(node, message):
     except Exception:
         pass
 
-    print(f"\n  Discovered new peer: {peer_id}")
+    if is_new:
+        print(f"\n  Discovered new peer: {peer_id}")
 
 
 def _handle_welcome(node, message):
@@ -298,6 +321,11 @@ def _handle_welcome(node, message):
     A peer responded to our ANNOUNCE with its full peer list.
     Merge their peer list into ours to bootstrap discovery.
     """
+    sender_id = message.get("peer_id")
+    with node.lock:
+        if sender_id and sender_id in node.peers:
+            node.peers[sender_id]["last_seen"] = time.time()
+
     incoming_peers = message.get("known_peers", {})
     _merge_peer_list(node, incoming_peers)
 
@@ -305,10 +333,15 @@ def _handle_welcome(node, message):
 def _handle_leave(node, message):
     """
     A peer is gracefully leaving the network.
-    Remove it from our peer list immediately.
+    Remove it from our peer list immediately and record a tombstone
+    to prevent incoming gossip from resurrecting it.
     """
     peer_id = message["peer_id"]
     with node.lock:
+        if not hasattr(node, "tombstones") or not isinstance(node.tombstones, dict):
+            node.tombstones = {}
+        node.tombstones[peer_id] = time.time()
+
         if peer_id in node.peers:
             del node.peers[peer_id]
             node.config_manager.mark_dirty()
@@ -357,31 +390,59 @@ def _merge_peer_list(node, incoming_peers: dict):
     """
     Merges an incoming peer list into the node's known peers.
     For each peer in the incoming list:
-      - If unknown → add it (new discovery via gossip)
+      - If unknown and not tombstoned → add it (new discovery via gossip)
       - If known → update if incoming last_seen is more recent
     """
     updated = False
+    now = time.time()
     with node.lock:
+        if not hasattr(node, "tombstones") or not isinstance(node.tombstones, dict):
+            node.tombstones = {}
+
+        # Prune expired tombstones
+        expired_tombstones = [
+            pid for pid, ts in node.tombstones.items()
+            if now - ts > TOMBSTONE_TTL
+        ]
+        for pid in expired_tombstones:
+            del node.tombstones[pid]
+
         for pid, info in incoming_peers.items():
             if pid == node.peer_id:
                 continue  # Don't overwrite our own entry
 
+            # Never resurrect dead or departed peers during the tombstone TTL
+            if pid in node.tombstones:
+                continue
+
+            incoming_seq = info.get("heartbeat_seq", 0)
+
             if pid not in node.peers:
-                # New peer discovered via gossip
+                # New peer discovered via gossip — initialize with local reception time
                 node.peers[pid] = {
                     "host": info["host"],
                     "port": info["port"],
                     "nodes": info.get("nodes", []),
                     "hash": info.get("hash", ""),
-                    "last_seen": info.get("last_seen", time.time())
+                    "heartbeat_seq": incoming_seq,
+                    "last_seen": time.time()
                 }
                 updated = True
             else:
-                # Existing peer — update if incoming info is fresher
+                # Existing peer — update if incoming heartbeat sequence is newer
                 existing = node.peers[pid]
-                incoming_seen = info.get("last_seen", 0)
-                if incoming_seen > existing.get("last_seen", 0):
-                    existing["last_seen"] = incoming_seen
+                existing_seq = existing.get("heartbeat_seq", 0)
+
+                if incoming_seq > existing_seq and incoming_seq > 0:
+                    # New heartbeat sequence received: update counter and refresh local clock
+                    existing["heartbeat_seq"] = incoming_seq
+                    existing["last_seen"] = time.time()
+                    existing["nodes"] = info.get("nodes", existing["nodes"])
+                    existing["hash"] = info.get("hash", existing["hash"])
+                    updated = True
+                elif incoming_seq == 0 and info.get("last_seen", 0) > existing.get("last_seen", 0):
+                    # Legacy fallback when packets lack heartbeat_seq
+                    existing["last_seen"] = info["last_seen"]
                     existing["nodes"] = info.get("nodes", existing["nodes"])
                     existing["hash"] = info.get("hash", existing["hash"])
                     updated = True

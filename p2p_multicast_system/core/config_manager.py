@@ -56,10 +56,14 @@ class ConfigManager:
             self._dirty = False
 
     def load_config(self) -> dict:
-        """Loads and returns config if it exists, otherwise returns None."""
+        """Loads and returns config if it exists and is valid, otherwise returns None."""
         if os.path.exists(self.config_file):
-            with open(self.config_file, "r") as f:
-                return json.load(f)
+            try:
+                with open(self.config_file, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"Warning: Could not read config file {self.config_file} ({e}). Starting fresh.")
+                return None
         return None
 
 

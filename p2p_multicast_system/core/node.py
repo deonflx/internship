@@ -44,6 +44,8 @@ class P2PNode:
         self.config_manager = ConfigManager(self.port)
         self.registered_nodes = []
         self.peers = {}
+        self.tombstones = {}
+        self.heartbeat_seq = 0
         self.running = True
         self.lock = threading.Lock()
         self.sent = []
@@ -128,6 +130,7 @@ class P2PNode:
                     "port": self.port,
                     "nodes": self.registered_nodes,
                     "hash": generate_hash(self.peer_id),
+                    "heartbeat_seq": self.heartbeat_seq,
                     "last_seen": time.time()
                 }
                 self.save_config()
@@ -152,10 +155,12 @@ class P2PNode:
             for peer_id, info in self.peers.items():
                 last_seen = info.get('last_seen', 0)
                 age = time.time() - last_seen if last_seen else 0
+                seq = info.get('heartbeat_seq', 0)
                 print(f"""
 Peer ID   : {peer_id}
 IP        : {info['host']}
 Port      : {info['port']}
+Seq       : {seq}
 Hash      : {info.get('hash', 'N/A')[:20]}...
 Last Seen : {age:.1f}s ago
 """)
@@ -227,6 +232,7 @@ Last Seen : {age:.1f}s ago
                 "port": self.port,
                 "nodes": self.registered_nodes,
                 "hash": generate_hash(self.peer_id),
+                "heartbeat_seq": self.heartbeat_seq,
                 "last_seen": time.time()
             }
             self.save_config()
